@@ -39,11 +39,11 @@ static const char *TAG = "CODEC";
 #define I2C_CLK_SPEED 400000
 
 #define I2S_PORT_NUM I2S_NUM_0
-#define I2S_MCLK GPIO_NUM_45
+#define I2S_MCLK GPIO_NUM_53
 #define I2S_BCLK GPIO_NUM_46
 #define I2S_WS GPIO_NUM_47
 #define I2S_DOUT GPIO_NUM_48
-#define I2S_DIN GPIO_NUM_54
+#define I2S_DIN GPIO_NUM_23
 
 uint8_t page = 255;
 
@@ -366,7 +366,7 @@ static void cfg_codec(const bool use_pll) {
     if (use_pll){
         // Step 3: Program Clock Settings
         // PLL_CLKIN = MCLK, CODEC_CLKIN = PLL_CLK
-        write_AIC32X4_reg(AIC32X4_CLKMUX, 0b0111);
+        write_AIC32X4_reg(AIC32X4_CLKMUX, 0b0011);
 
         // Step 4: Program PLL clock dividers (P=1, R=1, J=4, D=0)
         write_AIC32X4_reg(AIC32X4_PLLPR, 0x11);      // PLL disabled, P=1, R=1
@@ -513,12 +513,6 @@ void SetOutputLevels(const uint32_t left, const uint32_t right) {
 static void cfg_i2s() {
     ESP_LOGI(TAG, "cfg codec i2s");
 
-#include "hal/gpio_ll.h"
-#include "soc/i2s_periph.h"
-
-    // After i2s_channel_init_std_mode()
-    esp_rom_gpio_connect_out_signal(I2S_MCLK, I2S0O_MCK_OUT_IDX, false, false);
-
 
     // Set higher drive strength for MCLK
     gpio_set_drive_capability(I2S_MCLK, GPIO_DRIVE_CAP_3);
@@ -548,7 +542,7 @@ static void cfg_i2s() {
                     .dout = I2S_DOUT,
                     .din  = I2S_DIN,
                     .invert_flags = {
-                            .mclk_inv = false,
+                            .mclk_inv = true,
                             .bclk_inv = false,
                             .ws_inv = false,
                     },
@@ -581,7 +575,7 @@ void InitCodec() {
     identify();
     SetOutputLevels(0, 0);
     cfg_i2s();
-    cfg_codec(true);
+    cfg_codec(false);
     SetOutputLevels(58, 58);
 }
 
