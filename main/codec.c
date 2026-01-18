@@ -38,12 +38,16 @@ static const char *TAG = "CODEC";
 #define I2C_SCL GPIO_NUM_8
 #define I2C_CLK_SPEED 400000
 
+// dysfunctional IOs
+// GPIO45, GPIO54, GPIO6,
+// working GPIOs
+// GPIO23, GPIO22
 #define I2S_PORT_NUM I2S_NUM_0
-#define I2S_MCLK GPIO_NUM_53
+#define I2S_MCLK GPIO_NUM_53 // former GPIO45
 #define I2S_BCLK GPIO_NUM_46
 #define I2S_WS GPIO_NUM_47
 #define I2S_DOUT GPIO_NUM_48
-#define I2S_DIN GPIO_NUM_23
+#define I2S_DIN GPIO_NUM_23 // former GPIO54
 
 uint8_t page = 255;
 
