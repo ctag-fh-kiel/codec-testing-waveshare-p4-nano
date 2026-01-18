@@ -17,7 +17,21 @@
 #include "esp_ldo_regulator.h"
 #include <stdatomic.h>
 
-#include "codec.h"
+#ifdef CONFIG_CODEC_TLV320AIC3254
+    #include "codec.h"
+    #define CODEC_INIT() InitCodec()
+    #define CODEC_I2S_READ(buf, size, bytes_read) i2s_read(buf, size, bytes_read)
+    #define CODEC_I2S_WRITE(buf, size, bytes_written) i2s_write(buf, size, bytes_written)
+    #define CODEC_SET_OUTPUT_LEVELS(left, right) SetOutputLevels(left, right)
+#elif CONFIG_CODEC_AK4619
+    #include "ak4619_tdm.h"
+    #define CODEC_INIT() ak4619_tdm_init()
+    #define CODEC_I2S_READ(buf, size, bytes_read) ak4619_i2s_read(buf, size, bytes_read)
+    #define CODEC_I2S_WRITE(buf, size, bytes_written) ak4619_i2s_write(buf, size, bytes_written)
+    #define CODEC_SET_OUTPUT_LEVELS(left, right) // AK4619 output levels set in init
+#else
+    #error "No codec selected in menuconfig"
+#endif
 
 static const char* TAG = "MAIN";
 
@@ -30,23 +44,49 @@ atomic_int ext_int = 0;
 
 void audio_task(void* arg){
     uint32_t bytes_read;
-    int16_t sample_buffer[256*2];  // 256 stereo frames = 512 int16_t samples
+
+#ifdef CONFIG_CODEC_AK4619
+    // AK4619 uses 32-bit samples in TDM mode (4 slots: DAC1_L, DAC1_R, DAC2_L, DAC2_R)
+    int32_t sample_buffer[32*4];  // 32 frames × 4 channels = 1024 int32_t samples
+#else
+    // TLV320AIC3254 uses 16-bit stereo samples
+    int16_t sample_buffer[32*2];  // 32 stereo frames = 512 int16_t samples
+#endif
+
     static float phase = 0.0f;
-    const float phase_increment = 2.0f * M_PI * 440.0f / 48000.0f;  // 1kHz at 48kHz sample rate
+    const float phase_increment = 2.0f * M_PI * 440.0f / 48000.0f;  // 440Hz test tone at 48kHz sample rate
 
     while (1) {
-        // 256 stereo frames = 512 int16_t samples = 1024 bytes
-        size_t buffer_bytes = sizeof(sample_buffer);
-
         // Read audio data from I2S
-        i2s_read(sample_buffer, buffer_bytes, &bytes_read);
+        size_t buffer_bytes = sizeof(sample_buffer);
+        CODEC_I2S_READ(sample_buffer, buffer_bytes, &bytes_read);
 
-        // Generate 1kHz test tone on both channels
-        // Each stereo frame has 2 samples (left and right)
+        // Generate test tone when ext_int is 0 (or pass through when ext_int is 1)
         if (!ext_int){
-            int num_frames = sizeof(sample_buffer) / sizeof(int16_t) / 2;
+#ifdef CONFIG_CODEC_AK4619
+            // AK4619: Generate 440Hz sine wave for all 4 TDM channels (32-bit samples)
+            int num_frames = 32;
             for (int i = 0; i < num_frames; i++) {
-                int16_t sample_value = (int16_t)(65535.0f / 2.f * sinf(phase));
+                // 32-bit sample value (use upper bits for better SNR)
+                int32_t sample_value = (int32_t)(2147483647.0f * sinf(phase));
+
+                // Fill all 4 TDM slots: DAC1_L, DAC1_R, DAC2_L, DAC2_R
+                sample_buffer[i * 4 + 0] = sample_value;  // DAC1 Left
+                sample_buffer[i * 4 + 1] = sample_value;  // DAC1 Right
+                sample_buffer[i * 4 + 2] = sample_value;  // DAC2 Left
+                sample_buffer[i * 4 + 3] = sample_value;  // DAC2 Right
+
+                // Increment phase and wrap around 2*PI
+                phase += phase_increment;
+                if (phase >= 2.0f * M_PI) {
+                    phase -= 2.0f * M_PI;
+                }
+            }
+#else
+            // TLV320AIC3254: Generate 440Hz sine wave for stereo (16-bit samples)
+            int num_frames = 32;
+            for (int i = 0; i < num_frames; i++) {
+                int16_t sample_value = (int16_t)(32767.0f * sinf(phase));
                 sample_buffer[i * 2] = sample_value;      // Left channel
                 sample_buffer[i * 2 + 1] = sample_value;  // Right channel
 
@@ -56,10 +96,11 @@ void audio_task(void* arg){
                     phase -= 2.0f * M_PI;
                 }
             }
+#endif
         }
 
         // Write audio data back to I2S
-        i2s_write(sample_buffer, buffer_bytes, &bytes_read);
+        CODEC_I2S_WRITE(sample_buffer, buffer_bytes, &bytes_read);
     }
 }
 
@@ -106,8 +147,13 @@ void app_main(void){
         ESP_LOGE(TAG, "Failed to configure LDO 4: %s", esp_err_to_name(ret));
     }
 
-    InitCodec();
-    SetOutputLevels(75, 75);
+    // Initialize selected codec
+    CODEC_INIT();
+
+#ifdef CONFIG_CODEC_TLV320AIC3254
+    // Set output levels for TLV codec
+    CODEC_SET_OUTPUT_LEVELS(75, 75);
+#endif
 
     xTaskCreatePinnedToCore(audio_task, "audio_task", 8192, NULL, 15, NULL, 1);
     xTaskCreatePinnedToCore(blink_task, "blink_task", 8192, NULL, 5, NULL, 0);
