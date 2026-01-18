@@ -153,6 +153,19 @@ void app_main(void){
 #ifdef CONFIG_CODEC_TLV320AIC3254
     // Set output levels for TLV codec
     CODEC_SET_OUTPUT_LEVELS(75, 75);
+#elif CONFIG_CODEC_AK4619
+    // Example: Set AK4619 DAC volume
+    // Option 1: Set volume using dB values (recommended)
+    // ak4619_set_dac1_volume(ak4619_db_to_volume(0.0f), ak4619_db_to_volume(0.0f));   // 0dB (unity gain)
+    // ak4619_set_dac2_volume(ak4619_db_to_volume(-6.0f), ak4619_db_to_volume(-6.0f)); // -6dB
+
+    // Option 2: Set volume using register values directly
+    // ak4619_set_dac1_volume(0x18, 0x18);  // 0dB (default)
+    // ak4619_set_dac2_volume(0x18, 0x18);  // 0dB (default)
+
+    // Option 3: Set all DAC channels to same volume
+    // ak4619_set_all_dac_volume(0x18);  // 0dB on all channels
+    //ak4619_set_all_dac_volume(ak4619_db_to_volume(-12.0f));  // -3dB on all channels
 #endif
 
     xTaskCreatePinnedToCore(audio_task, "audio_task", 8192, NULL, 15, NULL, 1);

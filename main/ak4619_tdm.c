@@ -404,3 +404,147 @@ void ak4619_i2s_write(void *buf, uint32_t size, uint32_t *bytes_written)
     }
     *bytes_written = bytes_written_local;
 }
+
+// ============================================================================
+// DAC Volume Control Functions
+// ============================================================================
+
+/**
+ * @brief Convert dB value to AK4619 DAC volume register value
+ *
+ * @param db_value Volume in dB (-115.0 to +12.0, in 0.5dB steps)
+ * @return uint8_t Register value (0x00 to 0xFF)
+ *         0x00 = +12.0dB (max gain)
+ *         0x18 = 0.0dB (unity gain, default)
+ *         0xFE = -115.0dB (minimum)
+ *         0xFF = Mute
+ */
+uint8_t ak4619_db_to_volume(float db_value)
+{
+    // Clamp to valid range
+    if (db_value > 12.0f) {
+        db_value = 12.0f;
+    } else if (db_value < -115.0f) {
+        return 0xFF;  // Mute
+    }
+
+    // Convert dB to register value
+    // Formula: reg_value = (12.0 - db_value) / 0.5
+    // 0x00 = +12.0dB, 0x18 = 0dB, 0xFE = -115.0dB
+    int reg_value = (int)((12.0f - db_value) / 0.5f + 0.5f);  // +0.5 for rounding
+
+    // Clamp to valid register range (0x00 to 0xFE, 0xFF is mute)
+    if (reg_value < 0) {
+        reg_value = 0;
+    } else if (reg_value > 0xFE) {
+        reg_value = 0xFE;
+    }
+
+    return (uint8_t)reg_value;
+}
+
+/**
+ * @brief Set DAC volume for a specific DAC pair
+ *
+ * @param dac_num DAC number (1 or 2)
+ * @param left_vol Left channel volume (0x00 to 0xFF)
+ * @param right_vol Right channel volume (0x00 to 0xFF)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t ak4619_set_dac_volume(uint8_t dac_num, uint8_t left_vol, uint8_t right_vol)
+{
+    esp_err_t ret;
+    uint8_t left_reg, right_reg;
+
+    if (dac_num == 1) {
+        left_reg = REG_DAC_VOL0;   // DAC1 Left (0x0E)
+        right_reg = REG_DAC_VOL1;  // DAC1 Right (0x0F)
+    } else if (dac_num == 2) {
+        left_reg = REG_DAC_VOL2;   // DAC2 Left (0x10)
+        right_reg = REG_DAC_VOL3;  // DAC2 Right (0x11)
+    } else {
+        ESP_LOGE(TAG, "Invalid DAC number: %d (must be 1 or 2)", dac_num);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Write left channel volume
+    ret = ak_write(left_reg, left_vol);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set DAC%d left volume", dac_num);
+        return ret;
+    }
+
+    // Write right channel volume
+    ret = ak_write(right_reg, right_vol);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set DAC%d right volume", dac_num);
+        return ret;
+    }
+
+    // Convert register values back to dB for logging
+    float left_db = 12.0f - (left_vol * 0.5f);
+    float right_db = 12.0f - (right_vol * 0.5f);
+
+    if (left_vol == 0xFF) {
+        ESP_LOGI(TAG, "DAC%d Left: Muted", dac_num);
+    } else {
+        ESP_LOGI(TAG, "DAC%d Left: %.1f dB (0x%02X)", dac_num, left_db, left_vol);
+    }
+
+    if (right_vol == 0xFF) {
+        ESP_LOGI(TAG, "DAC%d Right: Muted", dac_num);
+    } else {
+        ESP_LOGI(TAG, "DAC%d Right: %.1f dB (0x%02X)", dac_num, right_db, right_vol);
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Set DAC1 volume (convenience function)
+ *
+ * @param left_vol Left channel volume (0x00 to 0xFF)
+ * @param right_vol Right channel volume (0x00 to 0xFF)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t ak4619_set_dac1_volume(uint8_t left_vol, uint8_t right_vol)
+{
+    return ak4619_set_dac_volume(1, left_vol, right_vol);
+}
+
+/**
+ * @brief Set DAC2 volume (convenience function)
+ *
+ * @param left_vol Left channel volume (0x00 to 0xFF)
+ * @param right_vol Right channel volume (0x00 to 0xFF)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t ak4619_set_dac2_volume(uint8_t left_vol, uint8_t right_vol)
+{
+    return ak4619_set_dac_volume(2, left_vol, right_vol);
+}
+
+/**
+ * @brief Set all DAC channels to the same volume
+ *
+ * @param volume Volume value (0x00 to 0xFF) applied to all 4 channels
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t ak4619_set_all_dac_volume(uint8_t volume)
+{
+    esp_err_t ret;
+
+    ret = ak4619_set_dac_volume(1, volume, volume);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = ak4619_set_dac_volume(2, volume, volume);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "All DAC channels set to same volume");
+    return ESP_OK;
+}
+
