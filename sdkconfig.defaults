@@ -752,6 +752,9 @@ CONFIG_PARTITION_TABLE_MD5=y
 #
 # Example Configuration
 #
+# CONFIG_CODEC_TLV320AIC3254 is not set
+CONFIG_CODEC_AK4619=y
+# end of Example Configuration
 
 #
 # Compiler options
